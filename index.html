@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voting Baju</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Voting Baju</h1>
+        <div class="voting-container">
+            <div class="voting-item">
+                <div class="image-container">
+                    <img src="assets/img/G1.jpg" alt="Baju 1" id="baju1">
+                </div>
+                <h3>Baju 1</h3>
+                <p>Jumlah Vote: <span id="votes1">0</span></p>
+                <div class="button-group">
+                    <button onclick="vote(1)" class="vote-btn" id="voteBtn1">Vote</button>
+                    <button onclick="cancelVote(1)" class="cancel-btn" id="cancelBtn1" style="display: none;">Batalkan</button>
+                </div>
+            </div>
+
+            <div class="voting-item">
+                <div class="image-container">
+                    <img src="assets/img/G2.jpg" alt="Baju 2" id="baju2">
+                </div>
+                <h3>Baju 2</h3>
+                <p>Jumlah Vote: <span id="votes2">0</span></p>
+                <div class="button-group">
+                    <button onclick="vote(2)" class="vote-btn" id="voteBtn2">Vote</button>
+                    <button onclick="cancelVote(2)" class="cancel-btn" id="cancelBtn2" style="display: none;">Batalkan</button>
+                </div>
+            </div>
+
+            <div class="voting-item">
+                <div class="image-container">
+                    <img src="assets/img/G3.jpg" alt="Baju 3" id="baju3">
+                </div>
+                <h3>Baju 3</h3>
+                <p>Jumlah Vote: <span id="votes3">0</span></p>
+                <div class="button-group">
+                    <button onclick="vote(3)" class="vote-btn" id="voteBtn3">Vote</button>
+                    <button onclick="cancelVote(3)" class="cancel-btn" id="cancelBtn3" style="display: none;">Batalkan</button>
+                </div>
+            </div>
+
+            <div class="voting-item">
+                <div class="image-container">
+                    <img src="assets/img/G4.jpg" alt="Baju 4" id="baju4">
+                </div>
+                <h3>Baju 4</h3>
+                <p>Jumlah Vote: <span id="votes4">0</span></p>
+                <div class="button-group">
+                    <button onclick="vote(4)" class="vote-btn" id="voteBtn4">Vote</button>
+                    <button onclick="cancelVote(4)" class="cancel-btn" id="cancelBtn4" style="display: none;">Batalkan</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="results-section">
+            <h2>Hasil Voting</h2>
+            <div id="results-chart"></div>
+            <!-- <div class="reset-container">
+                <button id="resetButton" class="reset-btn" onclick="resetAllVotes()">Reset All Votes</button>
+            </div> -->
+        </div>
+    </div>
+    <footer class="footer">
+        <p>Dibuat oleh <span class="author">Ilham Nugroho</span></p>
+    </footer>
+    <script src="js/script.js"></script>
+</body>
+</html>
