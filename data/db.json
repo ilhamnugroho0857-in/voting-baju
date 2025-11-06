@@ -1,0 +1,25 @@
+{
+  "clothes": [
+    {
+      "id": 1,
+      "name": "Baju 1",
+      "votes": 0
+    },
+    {
+      "id": 2,
+      "name": "Baju 2",
+      "votes": 0
+    },
+    {
+      "id": 3,
+      "name": "Baju 3",
+      "votes": 0
+    },
+    {
+      "id": 4,
+      "name": "Baju 4",
+      "votes": 0
+    }
+  ],
+  "userVotes": []
+}
