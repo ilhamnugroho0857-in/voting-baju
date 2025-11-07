@@ -1,4 +1,4 @@
-// Initialize vote counts and user votes (declare early to avoid TDZ issues)
+// Inisialisasi hitungan vote dan vote pengguna
 let votes = {
     1: 0,
     2: 0,
@@ -9,14 +9,54 @@ let votes = {
 let userVotes = new Set();
 let lastUpdate = '';
 
-// Supabase configuration
-// Ganti SUPABASE_URL dengan Project URL Anda (mis. https://abcd1234.supabase.co)
-const SUPABASE_URL = 'https://aankoycijlylozbcjesa.supabase.co'; // <-- DIGANTI DARI INPUT USER
-
-// Supabase anon public key (aman digunakan di client). Nilai yang Anda berikan dimasukkan di sini.
+// Konfigurasi Supabase
+const SUPABASE_URL = 'https://aankoycijlylozbcjesa.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhbmtveWNpamx5bG96YmNqZXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI1MzM5MDQsImV4cCI6MjA3ODEwOTkwNH0.HZY0Tj_SM719eLGf1OeNUDAGaNztqzhYEx5xkaIF0kI';
 
-// Create supabase client safely (may fail if library not loaded)
+// Utilitas untuk operasi umum
+const utils = {
+    async retryOperation(fn, maxAttempts = 3) {
+        for (let i = 0; i < maxAttempts; i++) {
+            try {
+                await fn();
+                return true;
+            } catch (error) {
+                console.error(`Percobaan ke-${i + 1} gagal:`, error);
+                if (i < maxAttempts - 1) {
+                    this.showNotification(`Mencoba menghubungkan kembali... (${i + 2}/${maxAttempts})`, true);
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+                }
+            }
+        }
+        return false;
+    },
+
+    showNotification(message, isError = false) {
+        const notification = document.createElement('div');
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: ${isError ? '#ff0000' : '#000000'};
+            color: white;
+            padding: 15px 30px;
+            border-radius: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            animation: fadeInOut 3s forwards;
+        `;
+        
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.remove();
+        }, 3000);
+    }
+};
+
+// Inisialisasi Supabase client
 let supabaseClient = null;
 try {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -25,22 +65,44 @@ try {
     
     if (window.supabase && typeof window.supabase.createClient === 'function') {
         supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        console.log('Supabase client berhasil diinisialisasi');
     } else if (typeof createClient === 'function') {
-        // some builds expose createClient globally
         supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        console.log('Supabase client berhasil diinisialisasi (createClient global)');
     } else {
         throw new Error('Library Supabase tidak tersedia');
     }
 } catch (e) {
-    console.error('Error initializing Supabase client:', e);
-    showNotification(`Gagal menginisialisasi koneksi database: ${e.message}`, true);
+    console.error('Kesalahan inisialisasi Supabase client:', e);
+    utils.showNotification(`Gagal menginisialisasi koneksi database: ${e.message}`, true);
 }
 
-// Muat data dari Supabase
+// Fungsi untuk menyimpan data ke Supabase
+async function saveToDatabase() {
+    if (!supabaseClient) {
+        throw new Error('Tidak dapat terhubung ke database');
+    }
+
+    const { error } = await supabaseClient
+        .from('voting_data')
+        .upsert({
+            id: 1,
+            votes: votes,
+            user_votes: Array.from(userVotes),
+            last_update: new Date().toISOString()
+        });
+
+    if (error) throw error;
+
+    // Simpan juga ke localStorage sebagai cadangan
+    saveToStorage();
+}
+
+// Fungsi untuk memuat data dari Supabase
 async function loadFromDatabase() {
     try {
         if (!supabaseClient) {
-            throw new Error('Tidak dapat terhubung ke database. Menggunakan data lokal');
+            throw new Error('Tidak dapat terhubung ke database');
         }
 
         const { data, error } = await supabaseClient
@@ -49,10 +111,8 @@ async function loadFromDatabase() {
             .single();
 
         if (error) {
-            // Periksa apakah error karena tidak ada data
             if (error.code === 'PGRST116') {
-                // Inisialisasi database jika belum ada data
-                showNotification('Memulai database baru...', false);
+                utils.showNotification('Memulai database baru...', false);
                 await saveToDatabase();
                 return;
             }
@@ -66,64 +126,81 @@ async function loadFromDatabase() {
             updateAllVoteCounts();
             updateButtonStates();
             updateChart();
-            showNotification('Data berhasil dimuat dari server', false);
+            utils.showNotification('Data berhasil dimuat dari server', false);
         }
     } catch (error) {
         console.error('Kesalahan saat memuat data:', error);
-        showNotification(`Tidak dapat memuat data dari server: ${error.message}. Menggunakan data lokal...`, true);
-        // Fallback ke localStorage jika database gagal
+        utils.showNotification(`Tidak dapat memuat data dari server: ${error.message}. Menggunakan data lokal...`, true);
         loadFromStorage();
     }
 }
 
-// Simpan data ke Supabase
-async function saveToDatabase() {
+// Fungsi untuk voting
+async function vote(clothingId) {
     try {
         if (!supabaseClient) {
-            throw new Error('Tidak dapat terhubung ke database');
+            throw new Error('Tidak dapat terhubung ke database. Periksa koneksi internet Anda');
         }
 
-        const { error } = await supabaseClient
-            .from('voting_data')
-            .upsert({
-                id: 1, // Satu record saja
-                votes: votes,
-                user_votes: Array.from(userVotes),
-                last_update: new Date().toISOString()
-            });
-
-        if (error) throw error;
-
-        // Simpan juga ke localStorage sebagai cadangan
-        saveToStorage();
+        votes[clothingId]++;
+        userVotes.add(clothingId);
         
-    } catch (error) {
-        console.error('Kesalahan saat menyimpan ke database:', error);
-        // Tampilkan pesan error yang lebih informatif
-        const msg = (error && error.message) 
-            ? `Gagal menyimpan ke database: ${error.message}. Data disimpan secara lokal.` 
-            : 'Gagal menyimpan ke database. Data disimpan secara lokal.';
-        showNotification(msg, true);
-        // Fallback ke localStorage jika database gagal
-        saveToStorage();
-        throw error; // Lempar error agar fungsi pemanggil tahu ada masalah
-    }
-}
-
-// Backup localStorage functions
-function loadFromStorage() {
-    const savedVotes = localStorage.getItem('votingData');
-    if (savedVotes) {
-        const data = JSON.parse(savedVotes);
-        votes = data.votes;
-        userVotes = new Set(data.userVotes);
-        lastUpdate = data.lastUpdate;
-        updateAllVoteCounts();
-        updateButtonStates();
+        const saved = await utils.retryOperation(async () => {
+            await saveToDatabase();
+        });
+        
+        if (!saved) {
+            throw new Error('Gagal menyimpan vote setelah beberapa kali percobaan');
+        }
+        
+        updateVoteCount(clothingId);
         updateChart();
+        updateButtonStates();
+        
+        utils.showNotification('Vote berhasil disimpan! Terima kasih telah berpartisipasi');
+    } catch (error) {
+        console.error('Kesalahan saat voting:', error);
+        votes[clothingId]--;
+        userVotes.delete(clothingId);
+        utils.showNotification(`Mohon maaf, vote gagal disimpan: ${error.message}. Silakan coba lagi dalam beberapa saat`, true);
     }
 }
 
+// Fungsi untuk membatalkan vote
+async function cancelVote(clothingId) {
+    try {
+        if (!supabaseClient) {
+            throw new Error('Tidak dapat terhubung ke database. Periksa koneksi internet Anda');
+        }
+
+        if (votes[clothingId] > 0) {
+            votes[clothingId]--;
+        }
+        
+        userVotes.delete(clothingId);
+        
+        const saved = await utils.retryOperation(async () => {
+            await saveToDatabase();
+        });
+        
+        if (!saved) {
+            throw new Error('Gagal membatalkan vote setelah beberapa kali percobaan');
+        }
+        
+        updateVoteCount(clothingId);
+        updateChart();
+        updateButtonStates();
+
+        utils.showNotification('Vote berhasil dibatalkan!');
+    } catch (error) {
+        console.error('Kesalahan saat membatalkan vote:', error);
+        utils.showNotification(`Mohon maaf, gagal membatalkan vote: ${error.message}`, true);
+        votes[clothingId]++;
+        userVotes.add(clothingId);
+    }
+}
+
+// Fungsi untuk menyimpan ke localStorage
 function saveToStorage() {
     const data = {
         votes: votes,
@@ -133,10 +210,28 @@ function saveToStorage() {
     localStorage.setItem('votingData', JSON.stringify(data));
 }
 
-// Subscribe to real-time changes
+// Fungsi untuk memuat dari localStorage
+function loadFromStorage() {
+    const savedData = localStorage.getItem('votingData');
+    if (savedData) {
+        const data = JSON.parse(savedData);
+        votes = data.votes;
+        userVotes = new Set(data.userVotes);
+        lastUpdate = data.lastUpdate;
+        updateAllVoteCounts();
+        updateButtonStates();
+        updateChart();
+    }
+}
+
+// Fungsi untuk berlangganan perubahan real-time
 function subscribeToChanges() {
-    if (!supabaseClient) return;
-    supabaseClient
+    if (!supabaseClient) {
+        console.warn('Tidak dapat berlangganan perubahan real-time: client tidak tersedia');
+        return;
+    }
+    
+    const channel = supabaseClient
         .channel('voting_changes')
         .on('postgres_changes', 
             { event: '*', schema: 'public', table: 'voting_data' },
@@ -148,295 +243,23 @@ function subscribeToChanges() {
                     updateAllVoteCounts();
                     updateButtonStates();
                     updateChart();
+                    utils.showNotification('Data voting telah diperbarui', false);
                 }
             }
         )
-    .subscribe();
-}
-
-// Fungsi untuk memeriksa koneksi dan mencoba ulang
-async function checkConnectionAndRetry(fn) {
-    for (let i = 0; i < 3; i++) {  // Coba hingga 3 kali
-        try {
-            await fn();
-            return true;
-        } catch (error) {
-            console.error(`Percobaan ke-${i + 1} gagal:`, error);
-            if (i < 2) {  // Hanya tunggu jika masih akan mencoba lagi
-                showNotification(`Sedang mencoba menghubungkan kembali... (Percobaan ke-${i + 2})`, true);
-                await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Jeda waktu meningkat
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                console.log('Berhasil berlangganan perubahan real-time');
             }
-        }
-    }
-    return false;}
-}
-
-// Function to save votes to server
-async function saveVotes() {
-    try {
-        const response = await fetch(`${API_URL}/votingData`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                votes: votes,
-                userVotes: Array.from(userVotes),
-                lastUpdate: new Date().toISOString()
-            })
         });
-
-        if (!response.ok) {
-            throw new Error('Failed to save votes');
-        }
-
-        // Tampilkan notifikasi bahwa vote berhasil disimpan
-        showNotification('Vote berhasil disimpan!');
-    } catch (error) {
-        console.error('Error saving votes:', error);
-        showNotification('Gagal menyimpan vote. Silakan coba lagi.', true);
-    }
 }
 
-// Fungsi untuk menampilkan notifikasi
-function showNotification(message, isError = false) {
-    const notification = document.createElement('div');
-    notification.textContent = message;
-    notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: ${isError ? '#ff0000' : '#000000'};
-        color: white;
-        padding: 15px 30px;
-        border-radius: 25px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        z-index: 1000;
-        animation: fadeInOut 3s forwards;
-    `;
-    
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-        notification.remove();
-    }, 3000);
-}
-
-// Function to fetch user votes from server
-async function fetchUserVotes() {
-    try {
-        const response = await fetch(`${API_URL}/userVotes`);
-        const data = await response.json();
-        userVotes = new Set(data);
-        updateButtonStates();
-    } catch (error) {
-        console.error('Error fetching user votes:', error);
-    }
-}
-
-// Function to save user votes to server
-async function saveUserVotes() {
-    try {
-        await fetch(`${API_URL}/userVotes`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify([...userVotes])
-        });
-    } catch (error) {
-        console.error('Error saving user votes:', error);
-    }
-}
-
-// Initialize data when page loads
-window.addEventListener('DOMContentLoaded', async () => {
-    await loadFromDatabase();
-    subscribeToChanges();
-});
-
-// Function to reset all votes
-async function resetAllVotes() {
-    if (confirm('Apakah Anda yakin ingin menghapus semua vote? Tindakan ini tidak dapat dibatalkan.')) {
-        // Reset vote counts
-        votes = {
-            1: 0,
-            2: 0,
-            3: 0,
-            4: 0
-        };
-        
-        // Reset user votes
-        userVotes = new Set();
-        
-        // Reset server data
-        await Promise.all([
-            fetch(`${API_URL}/votes`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(votes)
-            }),
-            fetch(`${API_URL}/userVotes`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify([])
-            })
-        ]);
-        
-        // Update display
-        updateAllVoteCounts();
-        updateButtonStates();
-        
-        // Show confirmation message
-        const confirmationMessage = document.createElement('div');
-        confirmationMessage.textContent = 'Semua vote telah dihapus!';
-        confirmationMessage.style.cssText = `
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(255, 0, 0, 0.9);
-            color: white;
-            padding: 15px 30px;
-            border-radius: 25px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-            z-index: 1000;
-            animation: fadeInOut 3s forwards;
-        `;
-        
-        document.body.appendChild(confirmationMessage);
-        
-        // Remove the message after animation
-        setTimeout(() => {
-            confirmationMessage.remove();
-        }, 3000);
-    }
-}
-
-// Add CSS animation for the confirmation message
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes fadeInOut {
-        0% { opacity: 0; transform: translate(-50%, -20px); }
-        15% { opacity: 1; transform: translate(-50%, 0); }
-        85% { opacity: 1; transform: translate(-50%, 0); }
-        100% { opacity: 0; transform: translate(-50%, -20px); }
-    }
-`;
-document.head.appendChild(style);
-
-// Periksa apakah ada data voting tersimpan di localStorage
-const savedVotes = localStorage.getItem('clothingVotes');
-const savedUserVotes = localStorage.getItem('userVotes');
-
-if (savedVotes) {
-    votes = JSON.parse(savedVotes);
-    updateAllVoteCounts();
-}
-
-if (savedUserVotes) {
-    userVotes = new Set(JSON.parse(savedUserVotes));
-    updateButtonStates();
-}
-
-async function vote(clothingId) {
-    try {
-        if (!supabaseClient) {
-            throw new Error('Tidak dapat terhubung ke database. Periksa koneksi internet Anda');
-        }
-
-        // Tambah jumlah vote
-        votes[clothingId]++;
-        userVotes.add(clothingId);
-        
-        // Coba simpan dengan sistem retry
-        const saved = await checkConnectionAndRetry(async () => {
-            await saveToDatabase();
-        });
-        
-        if (!saved) {
-            throw new Error('Gagal menyimpan vote setelah beberapa kali percobaan. Mohon coba lagi nanti');
-        }
-        
-        // Perbarui tampilan
-        updateVoteCount(clothingId);
-        updateChart();
-        updateButtonStates();
-        
-        showNotification('Vote berhasil disimpan! Terima kasih telah berpartisipasi');
-    } catch (error) {
-        console.error('Kesalahan saat melakukan voting:', error);
-        // Kembalikan perubahan jika gagal menyimpan
-        votes[clothingId]--;
-        userVotes.delete(clothingId);
-        
-        showNotification(`Mohon maaf, vote gagal disimpan: ${error.message}. Silakan coba lagi dalam beberapa saat`, true);
-    }
-}
-
-async function cancelVote(clothingId) {
-    try {
-        if (!supabaseClient) {
-            throw new Error('Tidak dapat terhubung ke database. Periksa koneksi internet Anda');
-        }
-
-        // Kurangi jumlah vote
-        if (votes[clothingId] > 0) {
-            votes[clothingId]--;
-        }
-        
-        // Hapus dari daftar vote pengguna
-        userVotes.delete(clothingId);
-        
-        // Coba simpan dengan sistem retry
-        const saved = await checkConnectionAndRetry(async () => {
-            await saveToDatabase();
-        });
-        
-        if (!saved) {
-            throw new Error('Gagal membatalkan vote setelah beberapa kali percobaan');
-        }
-        
-        // Perbarui tampilan
-        updateVoteCount(clothingId);
-        updateChart();
-        updateButtonStates();
-
-        showNotification('Vote berhasil dibatalkan!');
-    } catch (error) {
-        console.error('Kesalahan saat membatalkan vote:', error);
-        showNotification('Mohon maaf, gagal membatalkan vote: ' + error.message, true);
-        
-        // Kembalikan status jika gagal
-        votes[clothingId]++;
-        userVotes.add(clothingId);
-    }
-}
-
-function updateButtonStates() {
-    // Update all buttons visibility
-    for (let i = 1; i <= 4; i++) {
-        const voteBtn = document.getElementById(`voteBtn${i}`);
-        const cancelBtn = document.getElementById(`cancelBtn${i}`);
-        
-        if (userVotes.has(i)) {
-            voteBtn.style.display = 'none';
-            cancelBtn.style.display = 'block';
-        } else {
-            voteBtn.style.display = 'block';
-            cancelBtn.style.display = 'none';
-        }
-    }
-}
-
+// Fungsi pembaruan tampilan
 function updateVoteCount(clothingId) {
     const voteElement = document.getElementById(`votes${clothingId}`);
-    voteElement.textContent = votes[clothingId];
+    if (voteElement) {
+        voteElement.textContent = votes[clothingId];
+    }
 }
 
 function updateAllVoteCounts() {
@@ -446,10 +269,28 @@ function updateAllVoteCounts() {
     updateChart();
 }
 
+function updateButtonStates() {
+    for (let i = 1; i <= 4; i++) {
+        const voteBtn = document.getElementById(`voteBtn${i}`);
+        const cancelBtn = document.getElementById(`cancelBtn${i}`);
+        
+        if (voteBtn && cancelBtn) {
+            if (userVotes.has(i)) {
+                voteBtn.style.display = 'none';
+                cancelBtn.style.display = 'block';
+            } else {
+                voteBtn.style.display = 'block';
+                cancelBtn.style.display = 'none';
+            }
+        }
+    }
+}
+
 function updateChart() {
     const resultsChart = document.getElementById('results-chart');
+    if (!resultsChart) return;
+
     const totalVotes = Object.values(votes).reduce((a, b) => a + b, 0);
-    
     let chartHTML = '';
     
     for (let i = 1; i <= 4; i++) {
@@ -472,3 +313,9 @@ function updateChart() {
     
     resultsChart.innerHTML = chartHTML;
 }
+
+// Inisialisasi saat halaman dimuat
+window.addEventListener('DOMContentLoaded', async () => {
+    await loadFromDatabase();
+    subscribeToChanges();
+});
