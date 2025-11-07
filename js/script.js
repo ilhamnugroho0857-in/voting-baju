@@ -10,15 +10,32 @@ let votes = {
 };
 
 let userVotes = new Set();
+let lastUpdate = '';
+
+// Fungsi untuk mendapatkan data voting terbaru
+async function getLatestVotingData() {
+    try {
+        const response = await fetch(`${API_URL}/votingData`);
+        if (!response.ok) throw new Error('Network response was not ok');
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('Error fetching voting data:', error);
+        return null;
+    }
+}
 
 // Function to fetch current votes from server
 async function fetchVotes() {
     try {
-        const response = await fetch(`${API_URL}/data`);
-        const result = await response.json();
-        if (result && result.votes) {
-            votes = result.votes;
+        const data = await getLatestVotingData();
+        if (data && data.lastUpdate !== lastUpdate) {
+            votes = data.votes;
+            userVotes = new Set(data.userVotes);
+            lastUpdate = data.lastUpdate;
             updateAllVoteCounts();
+            updateButtonStates();
+            updateChart();
         }
     } catch (error) {
         console.error('Error fetching votes:', error);
@@ -28,20 +45,53 @@ async function fetchVotes() {
 // Function to save votes to server
 async function saveVotes() {
     try {
-        const currentData = await fetch(`${API_URL}/data`).then(r => r.json());
-        await fetch(`${API_URL}/data`, {
+        const response = await fetch(`${API_URL}/votingData`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                ...currentData,
-                votes: votes
+                votes: votes,
+                userVotes: Array.from(userVotes),
+                lastUpdate: new Date().toISOString()
             })
         });
+
+        if (!response.ok) {
+            throw new Error('Failed to save votes');
+        }
+
+        // Tampilkan notifikasi bahwa vote berhasil disimpan
+        showNotification('Vote berhasil disimpan!');
     } catch (error) {
         console.error('Error saving votes:', error);
+        showNotification('Gagal menyimpan vote. Silakan coba lagi.', true);
     }
+}
+
+// Fungsi untuk menampilkan notifikasi
+function showNotification(message, isError = false) {
+    const notification = document.createElement('div');
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: ${isError ? '#ff0000' : '#000000'};
+        color: white;
+        padding: 15px 30px;
+        border-radius: 25px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        z-index: 1000;
+        animation: fadeInOut 3s forwards;
+    `;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
 }
 
 // Function to fetch user votes from server
@@ -77,8 +127,8 @@ window.addEventListener('DOMContentLoaded', () => {
     fetchUserVotes();
 });
 
-// Set up real-time updates every 5 seconds
-setInterval(fetchVotes, 5000);
+// Set up real-time updates every 2 seconds
+setInterval(fetchVotes, 2000);
 
 // Function to reset all votes
 async function resetAllVotes() {
@@ -169,37 +219,61 @@ if (savedUserVotes) {
 }
 
 async function vote(clothingId) {
-    // Increment vote count
-    votes[clothingId]++;
-    
-    // Add to user's votes
-    userVotes.add(clothingId);
-    
-    // Save to server
-    await Promise.all([saveVotes(), saveUserVotes()]);
-    
-    // Update the display
-    updateVoteCount(clothingId);
-    updateChart();
-    updateButtonStates();
+    try {
+        // Get latest data first
+        const latestData = await getLatestVotingData();
+        if (latestData) {
+            votes = latestData.votes;
+            userVotes = new Set(latestData.userVotes);
+        }
+
+        // Increment vote count
+        votes[clothingId]++;
+        userVotes.add(clothingId);
+        
+        // Save to server
+        await saveVotes();
+        
+        // Update the display
+        updateVoteCount(clothingId);
+        updateChart();
+        updateButtonStates();
+        
+    } catch (error) {
+        console.error('Error during voting:', error);
+        showNotification('Gagal melakukan voting. Silakan coba lagi.', true);
+    }
 }
 
 async function cancelVote(clothingId) {
-    // Decrement vote count
-    if (votes[clothingId] > 0) {
-        votes[clothingId]--;
+    try {
+        // Get latest data first
+        const latestData = await getLatestVotingData();
+        if (latestData) {
+            votes = latestData.votes;
+            userVotes = new Set(latestData.userVotes);
+        }
+
+        // Decrement vote count
+        if (votes[clothingId] > 0) {
+            votes[clothingId]--;
+        }
+        
+        // Remove from user's votes
+        userVotes.delete(clothingId);
+        
+        // Save to server
+        await saveVotes();
+        
+        // Update the display
+        updateVoteCount(clothingId);
+        updateChart();
+        updateButtonStates();
+
+    } catch (error) {
+        console.error('Error during vote cancellation:', error);
+        showNotification('Gagal membatalkan vote. Silakan coba lagi.', true);
     }
-    
-    // Remove from user's votes
-    userVotes.delete(clothingId);
-    
-    // Save to server
-    await Promise.all([saveVotes(), saveUserVotes()]);
-    
-    // Update the display
-    updateVoteCount(clothingId);
-    updateChart();
-    updateButtonStates();
 }
 
 function updateButtonStates() {

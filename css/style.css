@@ -99,9 +99,9 @@ h1::after {
     transition: transform 0.5s ease;
 }
 
-.image-container:hover img {
-    /* transform: scale(1.08); */
-}
+/* .image-container:hover img {
+    transform: scale(1.08);
+} */
 
 h3 {
     margin-bottom: 15px;
