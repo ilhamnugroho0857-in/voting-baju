@@ -56,6 +56,15 @@ const utils = {
     }
 };
 
+// Buat atau ambil ID unik untuk tiap perangkat (bertindak seperti "akun" lokal)
+const CLIENT_ID_KEY = 'votingClientId';
+let clientId = localStorage.getItem(CLIENT_ID_KEY);
+if (!clientId) {
+    clientId = 'client_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,10);
+    localStorage.setItem(CLIENT_ID_KEY, clientId);
+}
+console.log('Client ID:', clientId);
+
 // Inisialisasi Supabase client
 let supabaseClient = null;
 try {
@@ -95,7 +104,6 @@ async function saveToDatabase() {
         .upsert({
             id: 1,
             votes: votes,
-            user_votes: Array.from(userVotes),
             last_update: new Date().toISOString()
         })
         .select();
@@ -138,7 +146,6 @@ async function syncPendingVotingData() {
             .upsert({
                 id: 1,
                 votes: votes,
-                user_votes: Array.from(userVotes),
                 last_update: new Date().toISOString()
             });
 
@@ -177,9 +184,9 @@ async function loadFromDatabase() {
         }
 
         if (data) {
-            votes = data.votes;
-            userVotes = new Set(data.user_votes);
-            lastUpdate = data.last_update;
+            // Ambil counts dari server, tetapi jangan timpa userVotes lokal tiap perangkat
+            votes = data.votes || votes;
+            lastUpdate = data.last_update || lastUpdate;
             updateAllVoteCounts();
             updateButtonStates();
             updateChart();
@@ -305,7 +312,6 @@ function subscribeToChanges() {
             payload => {
                 if (payload.new) {
                     votes = payload.new.votes;
-                    userVotes = new Set(payload.new.user_votes);
                     lastUpdate = payload.new.last_update;
                     updateAllVoteCounts();
                     updateButtonStates();
