@@ -1,5 +1,11 @@
-// API URL - Ganti dengan IP komputer Anda untuk akses dari device lain
-const API_URL = 'http://localhost:3000';
+// Supabase configuration
+// Ganti SUPABASE_URL dengan Project URL Anda (mis. https://abcd1234.supabase.co)
+const SUPABASE_URL = 'https://aankoycijlylozbcjesa.supabase.co'; // <-- DIGANTI DARI INPUT USER
+
+// Supabase anon public key (aman digunakan di client). Nilai yang Anda berikan dimasukkan di sini.
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhbmtveWNpamx5bG96YmNqZXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI1MzM5MDQsImV4cCI6MjA3ODEwOTkwNH0.HZY0Tj_SM719eLGf1OeNUDAGaNztqzhYEx5xkaIF0kI';
+
+const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Initialize vote counts and user votes
 let votes = {
@@ -11,6 +17,101 @@ let votes = {
 
 let userVotes = new Set();
 let lastUpdate = '';
+
+// Load data from Supabase
+async function loadFromDatabase() {
+    try {
+        const { data, error } = await supabase
+            .from('voting_data')
+            .select('*')
+            .single();
+
+        if (error) throw error;
+
+        if (data) {
+            votes = data.votes;
+            userVotes = new Set(data.user_votes);
+            lastUpdate = data.last_update;
+            updateAllVoteCounts();
+            updateButtonStates();
+            updateChart();
+        } else {
+            // Initialize database if no data exists
+            await saveToDatabase();
+        }
+    } catch (error) {
+        console.error('Error loading data:', error);
+        // Fallback to localStorage if database fails
+        loadFromStorage();
+    }
+}
+
+// Save data to Supabase
+async function saveToDatabase() {
+    try {
+        const { error } = await supabase
+            .from('voting_data')
+            .upsert({
+                id: 1, // Single record
+                votes: votes,
+                user_votes: Array.from(userVotes),
+                last_update: new Date().toISOString()
+            });
+
+        if (error) throw error;
+
+        // Also save to localStorage as backup
+        saveToStorage();
+        
+    } catch (error) {
+        console.error('Error saving to database:', error);
+        // Fallback to localStorage if database fails
+        saveToStorage();
+    }
+}
+
+// Backup localStorage functions
+function loadFromStorage() {
+    const savedVotes = localStorage.getItem('votingData');
+    if (savedVotes) {
+        const data = JSON.parse(savedVotes);
+        votes = data.votes;
+        userVotes = new Set(data.userVotes);
+        lastUpdate = data.lastUpdate;
+        updateAllVoteCounts();
+        updateButtonStates();
+        updateChart();
+    }
+}
+
+function saveToStorage() {
+    const data = {
+        votes: votes,
+        userVotes: Array.from(userVotes),
+        lastUpdate: new Date().toISOString()
+    };
+    localStorage.setItem('votingData', JSON.stringify(data));
+}
+
+// Subscribe to real-time changes
+function subscribeToChanges() {
+    supabase
+        .channel('voting_changes')
+        .on('postgres_changes', 
+            { event: '*', schema: 'public', table: 'voting_data' },
+            payload => {
+                if (payload.new) {
+                    votes = payload.new.votes;
+                    userVotes = new Set(payload.new.user_votes);
+                    lastUpdate = payload.new.last_update;
+                    updateAllVoteCounts();
+                    updateButtonStates();
+                    updateChart();
+                }
+            }
+        )
+    .subscribe();
+}
 
 // Fungsi untuk mendapatkan data voting terbaru
 async function getLatestVotingData() {
@@ -121,14 +222,11 @@ async function saveUserVotes() {
     }
 }
 
-// Initialize data from server
-window.addEventListener('DOMContentLoaded', () => {
-    fetchVotes();
-    fetchUserVotes();
+// Initialize data when page loads
+window.addEventListener('DOMContentLoaded', async () => {
+    await loadFromDatabase();
+    subscribeToChanges();
 });
-
-// Set up real-time updates every 2 seconds
-setInterval(fetchVotes, 2000);
 
 // Function to reset all votes
 async function resetAllVotes() {
@@ -220,25 +318,19 @@ if (savedUserVotes) {
 
 async function vote(clothingId) {
     try {
-        // Get latest data first
-        const latestData = await getLatestVotingData();
-        if (latestData) {
-            votes = latestData.votes;
-            userVotes = new Set(latestData.userVotes);
-        }
-
         // Increment vote count
         votes[clothingId]++;
         userVotes.add(clothingId);
         
-        // Save to server
-        await saveVotes();
+        // Save to database
+        await saveToDatabase();
         
         // Update the display
         updateVoteCount(clothingId);
         updateChart();
         updateButtonStates();
         
+        showNotification('Vote berhasil disimpan!');
     } catch (error) {
         console.error('Error during voting:', error);
         showNotification('Gagal melakukan voting. Silakan coba lagi.', true);
@@ -247,13 +339,6 @@ async function vote(clothingId) {
 
 async function cancelVote(clothingId) {
     try {
-        // Get latest data first
-        const latestData = await getLatestVotingData();
-        if (latestData) {
-            votes = latestData.votes;
-            userVotes = new Set(latestData.userVotes);
-        }
-
         // Decrement vote count
         if (votes[clothingId] > 0) {
             votes[clothingId]--;
@@ -262,14 +347,15 @@ async function cancelVote(clothingId) {
         // Remove from user's votes
         userVotes.delete(clothingId);
         
-        // Save to server
-        await saveVotes();
+        // Save to database
+        await saveToDatabase();
         
         // Update the display
         updateVoteCount(clothingId);
         updateChart();
         updateButtonStates();
 
+        showNotification('Vote berhasil dibatalkan!');
     } catch (error) {
         console.error('Error during vote cancellation:', error);
         showNotification('Gagal membatalkan vote. Silakan coba lagi.', true);
