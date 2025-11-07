@@ -80,22 +80,79 @@ try {
 // Fungsi untuk menyimpan data ke Supabase
 async function saveToDatabase() {
     if (!supabaseClient) {
-        throw new Error('Tidak dapat terhubung ke database');
+        // Jika client tidak tersedia, simpan sebagai pending dan lempar error
+        saveToStorage();
+        localStorage.setItem('pendingVotingData', JSON.stringify({
+            votes: votes,
+            userVotes: Array.from(userVotes),
+            lastUpdate: new Date().toISOString()
+        }));
+        throw new Error('Supabase client tidak tersedia');
     }
 
-    const { error } = await supabaseClient
+    const { data, error } = await supabaseClient
         .from('voting_data')
         .upsert({
             id: 1,
             votes: votes,
             user_votes: Array.from(userVotes),
             last_update: new Date().toISOString()
-        });
+        })
+        .select();
 
-    if (error) throw error;
+    if (error) {
+        // Simpan lokal dan tandai sebagai pending agar bisa disinkronkan nanti
+        saveToStorage();
+        localStorage.setItem('pendingVotingData', JSON.stringify({
+            votes: votes,
+            userVotes: Array.from(userVotes),
+            lastUpdate: new Date().toISOString()
+        }));
+        throw error;
+    }
 
-    // Simpan juga ke localStorage sebagai cadangan
+    // Sukses: simpan lokal sebagai cadangan dan hapus pending
     saveToStorage();
+    localStorage.removeItem('pendingVotingData');
+    return data;
+}
+
+// Sinkronisasi pending data (jika ada) ke Supabase
+async function syncPendingVotingData() {
+    const pending = localStorage.getItem('pendingVotingData');
+    if (!pending) return false;
+
+    try {
+        const parsed = JSON.parse(pending);
+        // Terapkan ke memori agar UI mencerminkan state lokal
+        votes = parsed.votes || votes;
+        userVotes = new Set(parsed.userVotes || Array.from(userVotes));
+        lastUpdate = parsed.lastUpdate || lastUpdate;
+        updateAllVoteCounts();
+        updateButtonStates();
+
+        if (!supabaseClient) throw new Error('Supabase client tidak tersedia');
+
+        const { error } = await supabaseClient
+            .from('voting_data')
+            .upsert({
+                id: 1,
+                votes: votes,
+                user_votes: Array.from(userVotes),
+                last_update: new Date().toISOString()
+            });
+
+        if (error) throw error;
+
+        // Jika sukses, hapus pending
+        localStorage.removeItem('pendingVotingData');
+        utils.showNotification('Data lokal berhasil disinkronkan ke server', false);
+        return true;
+    } catch (error) {
+        console.error('Gagal menyinkronkan pending data:', error);
+        utils.showNotification('Gagal menyinkronkan data lokal. Akan dicoba nanti.', true);
+        return false;
+    }
 }
 
 // Fungsi untuk memuat data dari Supabase
@@ -160,9 +217,14 @@ async function vote(clothingId) {
         utils.showNotification('Vote berhasil disimpan! Terima kasih telah berpartisipasi');
     } catch (error) {
         console.error('Kesalahan saat voting:', error);
-        votes[clothingId]--;
-        userVotes.delete(clothingId);
-        utils.showNotification(`Mohon maaf, vote gagal disimpan: ${error.message}. Silakan coba lagi dalam beberapa saat`, true);
+        // Jika gagal menyimpan ke server, simpan lokal dan tandai untuk sinkronisasi
+        saveToStorage();
+        localStorage.setItem('pendingVotingData', JSON.stringify({
+            votes: votes,
+            userVotes: Array.from(userVotes),
+            lastUpdate: new Date().toISOString()
+        }));
+        utils.showNotification(`Vote disimpan secara lokal dan akan disinkronkan: ${error.message}`, false);
     }
 }
 
@@ -194,9 +256,14 @@ async function cancelVote(clothingId) {
         utils.showNotification('Vote berhasil dibatalkan!');
     } catch (error) {
         console.error('Kesalahan saat membatalkan vote:', error);
-        utils.showNotification(`Mohon maaf, gagal membatalkan vote: ${error.message}`, true);
-        votes[clothingId]++;
-        userVotes.add(clothingId);
+        // Jika gagal menyimpan pembatalan ke server, simpan lokal dan tandai pending
+        saveToStorage();
+        localStorage.setItem('pendingVotingData', JSON.stringify({
+            votes: votes,
+            userVotes: Array.from(userVotes),
+            lastUpdate: new Date().toISOString()
+        }));
+        utils.showNotification(`Pembatalan vote disimpan lokal dan akan disinkronkan: ${error.message}`, false);
     }
 }
 
@@ -316,6 +383,13 @@ function updateChart() {
 
 // Inisialisasi saat halaman dimuat
 window.addEventListener('DOMContentLoaded', async () => {
+    // Coba sinkronkan data lokal yang pending terlebih dahulu
+    try {
+        await syncPendingVotingData();
+    } catch (e) {
+        console.warn('Sinkronisasi pending gagal atau tidak diperlukan:', e);
+    }
+
     await loadFromDatabase();
     subscribeToChanges();
 });
