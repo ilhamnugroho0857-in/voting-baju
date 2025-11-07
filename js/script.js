@@ -1,4 +1,4 @@
-// API URL
+// API URL - Ganti dengan IP komputer Anda untuk akses dari device lain
 const API_URL = 'http://localhost:3000';
 
 // Initialize vote counts and user votes
@@ -14,10 +14,12 @@ let userVotes = new Set();
 // Function to fetch current votes from server
 async function fetchVotes() {
     try {
-        const response = await fetch(`${API_URL}/votes`);
-        const data = await response.json();
-        votes = data;
-        updateAllVoteCounts();
+        const response = await fetch(`${API_URL}/data`);
+        const result = await response.json();
+        if (result && result.votes) {
+            votes = result.votes;
+            updateAllVoteCounts();
+        }
     } catch (error) {
         console.error('Error fetching votes:', error);
     }
@@ -26,12 +28,16 @@ async function fetchVotes() {
 // Function to save votes to server
 async function saveVotes() {
     try {
-        await fetch(`${API_URL}/votes`, {
+        const currentData = await fetch(`${API_URL}/data`).then(r => r.json());
+        await fetch(`${API_URL}/data`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(votes)
+            body: JSON.stringify({
+                ...currentData,
+                votes: votes
+            })
         });
     } catch (error) {
         console.error('Error saving votes:', error);
