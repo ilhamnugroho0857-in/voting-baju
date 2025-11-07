@@ -1,13 +1,4 @@
-// Supabase configuration
-// Ganti SUPABASE_URL dengan Project URL Anda (mis. https://abcd1234.supabase.co)
-const SUPABASE_URL = 'https://aankoycijlylozbcjesa.supabase.co'; // <-- DIGANTI DARI INPUT USER
-
-// Supabase anon public key (aman digunakan di client). Nilai yang Anda berikan dimasukkan di sini.
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhbmtveWNpamx5bG96YmNqZXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI1MzM5MDQsImV4cCI6MjA3ODEwOTkwNH0.HZY0Tj_SM719eLGf1OeNUDAGaNztqzhYEx5xkaIF0kI';
-
-const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-// Initialize vote counts and user votes
+// Initialize vote counts and user votes (declare early to avoid TDZ issues)
 let votes = {
     1: 0,
     2: 0,
@@ -18,10 +9,32 @@ let votes = {
 let userVotes = new Set();
 let lastUpdate = '';
 
+// Supabase configuration
+// Ganti SUPABASE_URL dengan Project URL Anda (mis. https://abcd1234.supabase.co)
+const SUPABASE_URL = 'https://aankoycijlylozbcjesa.supabase.co'; // <-- DIGANTI DARI INPUT USER
+
+// Supabase anon public key (aman digunakan di client). Nilai yang Anda berikan dimasukkan di sini.
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhbmtveWNpamx5bG96YmNqZXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI1MzM5MDQsImV4cCI6MjA3ODEwOTkwNH0.HZY0Tj_SM719eLGf1OeNUDAGaNztqzhYEx5xkaIF0kI';
+
+// Create supabase client safely (may fail if library not loaded)
+let supabaseClient = null;
+try {
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } else if (typeof createClient === 'function') {
+        // some builds expose createClient globally
+        supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } else {
+        console.warn('Supabase client not available. Falling back to localStorage-only mode.');
+    }
+} catch (e) {
+    console.warn('Error initializing Supabase client:', e);
+}
+
 // Load data from Supabase
 async function loadFromDatabase() {
     try {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseClient
             .from('voting_data')
             .select('*')
             .single();
@@ -49,7 +62,7 @@ async function loadFromDatabase() {
 // Save data to Supabase
 async function saveToDatabase() {
     try {
-        const { error } = await supabase
+        const { error } = await supabaseClient
             .from('voting_data')
             .upsert({
                 id: 1, // Single record
@@ -65,6 +78,9 @@ async function saveToDatabase() {
         
     } catch (error) {
         console.error('Error saving to database:', error);
+        // Tampilkan error detail pada notifikasi agar mudah debug
+        const msg = (error && error.message) ? `Gagal menyimpan ke database: ${error.message}` : 'Gagal menyimpan ke database.';
+        showNotification(msg, true);
         // Fallback to localStorage if database fails
         saveToStorage();
     }
@@ -95,7 +111,8 @@ function saveToStorage() {
 
 // Subscribe to real-time changes
 function subscribeToChanges() {
-    supabase
+    if (!supabaseClient) return;
+    supabaseClient
         .channel('voting_changes')
         .on('postgres_changes', 
             { event: '*', schema: 'public', table: 'voting_data' },
