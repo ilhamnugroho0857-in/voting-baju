@@ -393,3 +393,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     await loadFromDatabase();
     subscribeToChanges();
 });
+
+// Pastikan fungsi yang dipanggil dari atribut onclick tersedia di scope global
+window.vote = vote;
+window.cancelVote = cancelVote;
+window.syncPendingVotingData = syncPendingVotingData;
