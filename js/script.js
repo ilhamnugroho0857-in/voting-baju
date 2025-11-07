@@ -1,3 +1,6 @@
+// API URL
+const API_URL = 'http://localhost:3000';
+
 // Initialize vote counts and user votes
 let votes = {
     1: 0,
@@ -8,8 +11,71 @@ let votes = {
 
 let userVotes = new Set();
 
+// Function to fetch current votes from server
+async function fetchVotes() {
+    try {
+        const response = await fetch(`${API_URL}/votes`);
+        const data = await response.json();
+        votes = data;
+        updateAllVoteCounts();
+    } catch (error) {
+        console.error('Error fetching votes:', error);
+    }
+}
+
+// Function to save votes to server
+async function saveVotes() {
+    try {
+        await fetch(`${API_URL}/votes`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(votes)
+        });
+    } catch (error) {
+        console.error('Error saving votes:', error);
+    }
+}
+
+// Function to fetch user votes from server
+async function fetchUserVotes() {
+    try {
+        const response = await fetch(`${API_URL}/userVotes`);
+        const data = await response.json();
+        userVotes = new Set(data);
+        updateButtonStates();
+    } catch (error) {
+        console.error('Error fetching user votes:', error);
+    }
+}
+
+// Function to save user votes to server
+async function saveUserVotes() {
+    try {
+        await fetch(`${API_URL}/userVotes`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify([...userVotes])
+        });
+    } catch (error) {
+        console.error('Error saving user votes:', error);
+    }
+}
+
+// Initialize data from server
+window.addEventListener('DOMContentLoaded', () => {
+    fetchVotes();
+    fetchUserVotes();
+});
+
+// Set up real-time updates every 5 seconds
+setInterval(fetchVotes, 5000);
+
 // Function to reset all votes
-function resetAllVotes() {
+async function resetAllVotes() {
     if (confirm('Apakah Anda yakin ingin menghapus semua vote? Tindakan ini tidak dapat dibatalkan.')) {
         // Reset vote counts
         votes = {
@@ -22,9 +88,23 @@ function resetAllVotes() {
         // Reset user votes
         userVotes = new Set();
         
-        // Clear localStorage
-        localStorage.removeItem('clothingVotes');
-        localStorage.removeItem('userVotes');
+        // Reset server data
+        await Promise.all([
+            fetch(`${API_URL}/votes`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(votes)
+            }),
+            fetch(`${API_URL}/userVotes`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify([])
+            })
+        ]);
         
         // Update display
         updateAllVoteCounts();
@@ -82,16 +162,15 @@ if (savedUserVotes) {
     updateButtonStates();
 }
 
-function vote(clothingId) {
+async function vote(clothingId) {
     // Increment vote count
     votes[clothingId]++;
     
     // Add to user's votes
     userVotes.add(clothingId);
     
-    // Save to localStorage
-    localStorage.setItem('clothingVotes', JSON.stringify(votes));
-    localStorage.setItem('userVotes', JSON.stringify([...userVotes]));
+    // Save to server
+    await Promise.all([saveVotes(), saveUserVotes()]);
     
     // Update the display
     updateVoteCount(clothingId);
@@ -99,7 +178,7 @@ function vote(clothingId) {
     updateButtonStates();
 }
 
-function cancelVote(clothingId) {
+async function cancelVote(clothingId) {
     // Decrement vote count
     if (votes[clothingId] > 0) {
         votes[clothingId]--;
@@ -108,9 +187,8 @@ function cancelVote(clothingId) {
     // Remove from user's votes
     userVotes.delete(clothingId);
     
-    // Save to localStorage
-    localStorage.setItem('clothingVotes', JSON.stringify(votes));
-    localStorage.setItem('userVotes', JSON.stringify([...userVotes]));
+    // Save to server
+    await Promise.all([saveVotes(), saveUserVotes()]);
     
     // Update the display
     updateVoteCount(clothingId);

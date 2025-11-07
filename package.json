@@ -1,0 +1,12 @@
+{
+  "name": "voting-baju",
+  "version": "1.0.0",
+  "description": "Sistem voting baju dengan backend JSON Server",
+  "main": "index.html",
+  "scripts": {
+    "server": "json-server --watch db.json --port 3000 --host 0.0.0.0"
+  },
+  "dependencies": {
+    "json-server": "^0.17.4"
+  }
+}
